@@ -68,6 +68,8 @@ IMGUI_IMPL_API void                 ImGui_ImplVulkanH_DestroyWindowData(VkInstan
 IMGUI_IMPL_API VkSurfaceFormatKHR   ImGui_ImplVulkanH_SelectSurfaceFormat(VkPhysicalDevice physical_device, VkSurfaceKHR surface, const VkFormat* request_formats, int request_formats_count, VkColorSpaceKHR request_color_space);
 IMGUI_IMPL_API VkPresentModeKHR     ImGui_ImplVulkanH_SelectPresentMode(VkPhysicalDevice physical_device, VkSurfaceKHR surface, const VkPresentModeKHR* request_modes, int request_modes_count);
 IMGUI_IMPL_API int                  ImGui_ImplVulkanH_GetMinImageCountFromPresentMode(VkPresentModeKHR present_mode);
+IMGUI_IMPL_API void*				ImGui_ImplVulkanH_AddTexture(VkSampler sampler, VkImageView image_view);
+IMGUI_IMPL_API void					ImGui_ImplVulkanH_ClearTexture(void* texture);
 
 // Helper structure to hold the data needed by one rendering frame
 struct ImGui_ImplVulkanH_FrameData

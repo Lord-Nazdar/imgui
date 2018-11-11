@@ -48,7 +48,7 @@ static VkPipelineCreateFlags        g_PipelineCreateFlags = 0;
 
 static VkDescriptorSetLayout        g_DescriptorSetLayout = VK_NULL_HANDLE;
 static VkPipelineLayout             g_PipelineLayout = VK_NULL_HANDLE;
-static VkDescriptorSet              g_DescriptorSet = VK_NULL_HANDLE;
+//static VkDescriptorSet              g_DescriptorSet = VK_NULL_HANDLE;
 static VkPipeline                   g_Pipeline = VK_NULL_HANDLE;
 
 // Frame data
@@ -250,11 +250,9 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
         vkUnmapMemory(g_Device, fd->IndexBufferMemory);
     }
 
-    // Bind pipeline and descriptor sets:
+    // Bind pipeline:
     {
         vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_Pipeline);
-        VkDescriptorSet desc_set[1] = { g_DescriptorSet };
-        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_PipelineLayout, 0, 1, desc_set, 0, NULL);
     }
 
     // Bind Vertex And Index Buffer:
@@ -314,6 +312,9 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
                 scissor.extent.width = (uint32_t)(pcmd->ClipRect.z - pcmd->ClipRect.x);
                 scissor.extent.height = (uint32_t)(pcmd->ClipRect.w - pcmd->ClipRect.y + 1); // FIXME: Why +1 here?
                 vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+				VkDescriptorSet desc_set[1] = { (VkDescriptorSet)pcmd->TextureId };
+				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_PipelineLayout, 0, 1, desc_set, 0, NULL);
                 
                 // Draw
                 vkCmdDrawIndexed(command_buffer, pcmd->ElemCount, 1, idx_offset, vtx_offset, 0);
@@ -322,6 +323,46 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
         }
         vtx_offset += cmd_list->VtxBuffer.Size;
     }
+}
+
+void * ImGui_ImplVulkanH_AddTexture(VkSampler sampler, VkImageView image_view)
+{
+	VkResult err;
+
+	VkDescriptorSet descriptor_set;
+	// Create Descriptor Set:
+	{
+		VkDescriptorSetAllocateInfo alloc_info = {};
+		alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		alloc_info.descriptorPool = g_DescriptorPool;
+		alloc_info.descriptorSetCount = 1;
+		alloc_info.pSetLayouts = &g_DescriptorSetLayout;
+		err = vkAllocateDescriptorSets(g_Device, &alloc_info, &descriptor_set);
+		check_vk_result(err);
+	}
+
+			// Update the Descriptor Set:
+	{
+		VkDescriptorImageInfo desc_image[1] = {};
+		desc_image[0].sampler = sampler;
+		desc_image[0].imageView = image_view;
+		desc_image[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		VkWriteDescriptorSet write_desc[1] = {};
+		write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write_desc[0].dstSet = descriptor_set;
+		write_desc[0].descriptorCount = 1;
+		write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write_desc[0].pImageInfo = desc_image;
+		vkUpdateDescriptorSets(g_Device, 1, write_desc, 0, NULL);
+	}
+
+	return (void*)descriptor_set;
+}
+
+IMGUI_IMPL_API void ImGui_ImplVulkanH_ClearTexture(void * texture)
+{
+	VkDescriptorSet descList[] = { (VkDescriptorSet)texture };
+	vkFreeDescriptorSets(g_Device, g_DescriptorPool, 1, descList);
 }
 
 bool ImGui_ImplVulkan_CreateFontsTexture(VkCommandBuffer command_buffer)
@@ -380,19 +421,7 @@ bool ImGui_ImplVulkan_CreateFontsTexture(VkCommandBuffer command_buffer)
     }
 
     // Update the Descriptor Set:
-    {
-        VkDescriptorImageInfo desc_image[1] = {};
-        desc_image[0].sampler = g_FontSampler;
-        desc_image[0].imageView = g_FontView;
-        desc_image[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        VkWriteDescriptorSet write_desc[1] = {};
-        write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_desc[0].dstSet = g_DescriptorSet;
-        write_desc[0].descriptorCount = 1;
-        write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_desc[0].pImageInfo = desc_image;
-        vkUpdateDescriptorSets(g_Device, 1, write_desc, 0, NULL);
-    }
+	auto font_descriptor_set = ImGui_ImplVulkanH_AddTexture(g_FontSampler, g_FontView);
 
     // Create the Upload Buffer:
     {
@@ -470,7 +499,7 @@ bool ImGui_ImplVulkan_CreateFontsTexture(VkCommandBuffer command_buffer)
     }
 
     // Store our identifier
-    io.Fonts->TexID = (ImTextureID)(intptr_t)g_FontImage;
+    io.Fonts->TexID = font_descriptor_set;
 
     return true;
 }
@@ -521,23 +550,11 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         binding[0].descriptorCount = 1;
         binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        binding[0].pImmutableSamplers = sampler;
         VkDescriptorSetLayoutCreateInfo info = {};
         info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         info.bindingCount = 1;
         info.pBindings = binding;
         err = vkCreateDescriptorSetLayout(g_Device, &info, g_Allocator, &g_DescriptorSetLayout);
-        check_vk_result(err);
-    }
-
-    // Create Descriptor Set:
-    {
-        VkDescriptorSetAllocateInfo alloc_info = {};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = g_DescriptorPool;
-        alloc_info.descriptorSetCount = 1;
-        alloc_info.pSetLayouts = &g_DescriptorSetLayout;
-        err = vkAllocateDescriptorSets(g_Device, &alloc_info, &g_DescriptorSet);
         check_vk_result(err);
     }
 
